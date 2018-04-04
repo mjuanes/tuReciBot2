@@ -16,15 +16,15 @@ class Document:
             self.signed) + ",ticket->" + str(self.ticket) + "\n"
 
 
-login_url = "https://ar.turecibo.com/login.php?ref=%2Fbandeja.php"
+login_url = "https://ar.turecibo.com/login.php"
 list_url = "https://ar.turecibo.com/bandeja.php"
 session_cookie = "PHPSESSID"
 
 
 def doLogin(dni, password):
-    r = requests.post(login_url, data={'login': '1', 'usuario': dni, 'clave': password},
+    r = requests.post(login_url, data="login=1&usuario={}&clave={}".format(dni, password),
                       allow_redirects=False)
-    print(r.status_code)
+    print("Login request status code: {}".format(r.status_code))
     return r.cookies[session_cookie]
 
 
@@ -54,7 +54,8 @@ def doList(session):
     totalSize = None
     while (totalSize == None or i < totalSize):
         i = i + 1
-        jDocs = json.loads(requests.post(list_url, params={'pag': i}, data=payload, cookies=jar, headers=headers).text)
+        response = requests.post(list_url, params={'pag': i}, data=payload, cookies=jar, headers=headers)
+        jDocs = json.loads(response.text)
         totalSize = jDocs["totalPages"]
         docs = parseDocuments(jDocs)
         for doc in docs:
