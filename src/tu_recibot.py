@@ -17,15 +17,18 @@ class Document:
 
 
 login_url = "https://ar.turecibo.com/login.php"
-list_url = "https://ar.turecibo.com/bandeja.php"
+#list_url = "https://www.turecibo.com.ar/bandeja.php"
+list_url = "https://www.despegar.turecibo.com.ar/bandeja.php?pag=1&category=1&idactivo=null"
 session_cookie = "PHPSESSID"
 
 
 def doLogin(dni, password):
-    r = requests.post(login_url, data="login=1&usuario={}&clave={}".format(dni, password),
+    url = "https://despegar.turecibo.com/bandeja.php"
+    headers = {""}
+    r = requests.post(url, data="login=1&usuario={}&clave={}".format(dni, password),
                       allow_redirects=False)
-    print("Login request status code: {}".format(r.status_code))
-    return r.cookies[session_cookie]
+    print("Login response status code: {}".format(r.status_code))
+    return r.cookies
 
 
 def parseDocuments(jDocs):
@@ -42,6 +45,15 @@ def parseDocuments(jDocs):
         doc = Document(jDoc["id"], jDoc["periodo"], jDoc["tipo"], jDoc["firmado"], ticket)
         documents.append(doc)
     return documents
+
+
+def doList2(session):
+    payload = "reload=1"
+    cookie = "PHPSESSID={}; AWSELB={}".format(session.get("PHPSESSID"), session.get("AWSELB"))
+    headers = {"Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+               "Content-Length": str(len(payload))}
+    response = requests.post(list_url, cookies={"Cookie": cookie},  data=payload)
+    print(response.text)
 
 
 def doList(session):
@@ -75,14 +87,14 @@ def downloadFile(doc, jar):
 
 
 def main():
-    if (len(sys.argv) != 3):
-        print "python mi_recibot.py <<dni>> <<password>>"
-        return
+    # if (len(sys.argv) != 3):
+    #     print "python mi_recibot.py <<dni>> <<password>>"
+    #     return
 
-    dni = sys.argv[1]
-    password = sys.argv[2]
+    dni = #sys.argv[1]
+    password = #sys.argv[2]
     session = doLogin(dni, password)
-    doList(session)
+    doList2(session)
 
 
 if __name__ == "__main__":
