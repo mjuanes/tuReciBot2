@@ -16,18 +16,37 @@ class Document:
             self.signed) + ",ticket->" + str(self.ticket) + "\n"
 
 
-login_url = "https://ar.turecibo.com/login.php"
+login_url = "https://www.turecibo.com.ar/login.php?ref=Lw%3D%3D"
 #list_url = "https://www.turecibo.com.ar/bandeja.php"
 list_url = "https://www.despegar.turecibo.com.ar/bandeja.php?pag=1&category=1&idactivo=null"
 session_cookie = "PHPSESSID"
 
 
 def doLogin(dni, password):
-    url = "https://despegar.turecibo.com/bandeja.php"
-    headers = {""}
-    r = requests.post(url, data="login=1&usuario={}&clave={}".format(dni, password),
-                      allow_redirects=False)
+    re = requests.post("https://www.turecibo.com.ar/login.php")
+
+    url = "https://www.turecibo.com.ar/login.php"
+    cookie = "PHPSESSID={}; AWSELB={}".format(re.cookies.get_dict().get("PHPSESSID"), re.cookies.get_dict().get("AWSELB"))
+    # /*, headers={"Cookie": cookie}*/
+
+    headers = {
+        "Cookie": cookie,
+        "Origin": "https://www.turecibo.com.ar",
+        "Accept-Encoding": "gzip, deflate, br",
+        "Accept-Language": "es-ES,es;q=0.9,en;q=0.8",
+        "Upgrade-Insecure-Requests": "1",
+        "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/63.0.3239.132 Safari/537.36",
+        "Content-Type": "application/x-www-form-urlencoded",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8",
+        "Cache-Control": "max-age=0",
+        "Referer": "https://www.turecibo.com.ar/login.php",
+        "Connection": "keep-alive"
+                      }
+
+    r = requests.post(url, data="login=1&usuario={}&clave={}".format(dni, password), allow_redirects=True, headers=headers)
+    r = r.history[0]
     print("Login response status code: {}".format(r.status_code))
+    print("Cookie header" + "PHPSESSID={}; AWSELB={}".format(r.cookies.get("PHPSESSID"), r.cookies.get("AWSELB")))
     return r.cookies
 
 
@@ -71,7 +90,7 @@ def doList(session):
         totalSize = jDocs["totalPages"]
         docs = parseDocuments(jDocs)
         for doc in docs:
-            print "Downloading " + doc.period + " " + doc.type
+            print("Downloading " + doc.period + " " + doc.type)
             if (doc.ticket != None):
                 downloadFile(doc, jar)
 
@@ -91,8 +110,8 @@ def main():
     #     print "python mi_recibot.py <<dni>> <<password>>"
     #     return
 
-    dni = #sys.argv[1]
-    password = #sys.argv[2]
+    dni = sys.argv[1]
+    password = sys.argv[2]
     session = doLogin(dni, password)
     doList2(session)
 
