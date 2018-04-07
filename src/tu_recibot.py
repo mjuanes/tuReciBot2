@@ -1,120 +1,146 @@
+#!/usr/bin/python3
+# -*- coding: utf-8 -*-
+
 import requests
 import json
+import logging
 import sys
 
-headers = {
-    "Origin": "https://www.turecibo.com.ar",
-    "Accept-Encoding": "gzip, deflate, br",
-    "Accept-Language": "es-ES,es;q=0.9,en;q=0.8",
-    "Upgrade-Insecure-Requests": "1",
-    "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/63.0.3239.132 Safari/537.36",
-    "Content-Type": "application/x-www-form-urlencoded",
-    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8",
-    "Cache-Control": "max-age=0",
-    "Referer": "https://www.turecibo.com.ar/login.php",
-    "Connection": "keep-alive"
-}
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - [%(levelname)s] (%(module)s:%(lineno)d) %(message)s')
+
+
+def main():
+    if len(sys.argv) != 3:
+        print("python mi_recibot.py <<dni>> <<password>>")
+        return
+    dni = sys.argv[1]
+    password = sys.argv[2]
+    session = login(dni, password)
+    files = get_documents(session)
+    download_files(session, files)
+    logging.info("Finished")
+
 
 class Document:
-    def __init__(self, id, period, type, signed, ticket):
+    def __init__(self, id, period, type, category, signed, ticket):
         self.id = id
         self.period = period
         self.type = type
+        self.category = category
         self.signed = signed
         self.ticket = ticket
 
     def __str__(self):
-        return "id->" + str(self.id) + ",period->" + self.period + ",type->" + self.type + ",signed->" + str(
-            self.signed) + ",ticket->" + str(self.ticket) + "\n"
+        return "id: {}, period: {}, type: {}, category: {}".format(self.id, self.period, self.type, self.category.name)
 
 
-login_url = "https://www.turecibo.com.ar/login.php?ref=Lw%3D%3D"
-list_url = "https://www.turecibo.com.ar/bandeja.php"
-#list_url = "https://www.despegar.turecibo.com.ar/bandeja.php?pag=1&category=1&idactivo=null"
-session_cookie = "PHPSESSID"
+class Category:
+    def __init__(self, id, name, total, without_signed):
+        self.id = id
+        self.name = name
+        self.total = total
+        self.without_signed = without_signed
+
+    def __str__(self):
+        return "id: {}, name: {}".format(self.id, self.named)
 
 
-def doLogin(dni, password):
-    re = requests.post("https://www.turecibo.com.ar/login.php")
+def get_documents(session)-> list:
+    documents = []
+    for category in get_categories(session):
+        logging.info("Collection files for category: {}".format(category.name))
+        docs_left = True
+        pag = 1
+        while docs_left:
+            docs = get_docs_for_page(pag, category, session)
+            documents += docs
+            docs_left = len(docs) > 0
+            pag += 1
+            return docs # aqui
+    return documents
 
+
+def get_categories(session) -> list:
+    pag_url = files_paginated_url(1, 1)
+    response = post(pag_url, cookies=session, data='reload=1', headers=headers(session))
+    res_dic = json.loads(response.text)
+    return parse_categories(res_dic)
+
+
+def get_docs_for_page(page: int, category: Category, session) ->list:
+    pag_url = files_paginated_url(page, category.id)
+    response = post(pag_url, data='reload=1', headers=headers(session))
+    res_dic = json.loads(response.text)
+    return parse_documents(res_dic, category)
+
+
+def download_files(session, files: list):
+    for doc in files:
+        download_file(doc, session)
+
+
+def login(dni, password):
+    logging.info("Login...")
+    re = post("https://www.turecibo.com.ar/login.php")
     url = "https://www.turecibo.com.ar/login.php"
-    cookie = "PHPSESSID={}; AWSELB={}".format(re.cookies.get_dict().get("PHPSESSID"), re.cookies.get_dict().get("AWSELB"))
-    # /*, headers={"Cookie": cookie}*/
-
-    headers['Cookie'] = cookie
-    r = requests.post(url, data="login=1&usuario={}&clave={}".format(dni, password), allow_redirects=True, headers=headers)
+    r = post(url, data="login=1&usuario={}&clave={}".format(dni, password), allow_redirects=True, headers=headers(re.cookies))
     r = r.history[0]
-    print("Login response status code: {}".format(r.status_code))
-    print("Cookie header" + "PHPSESSID={}; AWSELB={}".format(r.cookies.get("PHPSESSID"), r.cookies.get("AWSELB")))
+    logging.info("Login OK")
     return r.cookies
 
 
-def parseDocuments(jDocs):
+def parse_documents(json_doc: dict, category: Category) -> list:
     documents = []
-    documentsSize = len(jDocs["documentosFirmables"])
-    for x in range(0, documentsSize):
-        jDoc = jDocs["documentosFirmables"][x]
-        id = jDoc["id"]
-        if (jDocs["tikets"].has_key(str(id))):
-            ticket = jDocs["tikets"][str(id)]
-        else:
-            ticket = None
-
-        doc = Document(jDoc["id"], jDoc["periodo"], jDoc["tipo"], jDoc["firmado"], ticket)
+    for doc in json_doc["documentosFirmables"]:
+        ticket = json_doc["tikets"][str(doc["id"])]
+        doc = Document(doc["id"], doc["periodo"], doc["tipo"], category, doc["firmado"], ticket)
         documents.append(doc)
     return documents
 
 
-def doList2(session):
-    cookie = "PHPSESSID={}; AWSELB={}".format(session.get_dict().get("PHPSESSID"),
-                                              session.get_dict().get("AWSELB"))
-    headers['Cookie'] = cookie
-    payload = "reload=1"
-    cookie = "PHPSESSID={}; AWSELB={}".format(session.get("PHPSESSID"), session.get("AWSELB"))
-    response = requests.post(list_url, cookies=session,  data=payload, headers=headers)
-    print(response.text)
+def parse_categories(dic: dict) -> list:
+    categories = []
+    for dic_cat in dic['categorias'].values():
+        category = Category(dic_cat['id_categoria_tipo'], dic_cat['name'], dic_cat['totalDocumentos'], dic_cat['sinFirmar'])
+        categories.append(category)
+    return categories
 
 
-def doList(session):
-    jar = requests.cookies.RequestsCookieJar()
-    jar.set(session_cookie, session, domain='ar.turecibo.com', path='/')
-    payload = "reload=1"
-    headers = {"Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
-               "Content-Length": str(len(payload))}
-    i = 0
-    totalSize = None
-    while (totalSize == None or i < totalSize):
-        i = i + 1
-        response = requests.post(list_url, params={'pag': i}, data=payload, cookies=jar, headers=headers)
-        jDocs = json.loads(response.text)
-        totalSize = jDocs["totalPages"]
-        docs = parseDocuments(jDocs)
-        for doc in docs:
-            print("Downloading " + doc.period + " " + doc.type)
-            if (doc.ticket != None):
-                downloadFile(doc, jar)
-
-
-# https://www.turecibo.com.ar/file.php?idapp=278&id=93168&t=d340bcd94ffbd67ac9ff9a73b370e2ca
-def downloadFile(doc, jar):
-    r = requests.get("https://ar.turecibo.com/file.php?idapp=305&id=" + str(doc.id) + "&t=" + doc.ticket,
-                     cookies=jar, stream=True)
-
+def download_file(doc: Document, cookieJar):
+    logging.info("Downloading document: {}".format(doc))
+    r = requests.get(file_download_url(doc), stream=True, headers=headers(cookieJar))
     if r.status_code == 200:
-        with open(doc.period.replace("/", "-") + "-" + doc.type + ".pdf", 'wb') as fd:
+        with open("{}-{}.pdf".format(doc.period.replace("/", "-"), doc.type), 'wb') as fd:
             for chunk in r.iter_content(chunk_size=128):
                 fd.write(chunk)
+    else:
+        logging.error("Error downloading file")
 
 
-def main():
-    # if (len(sys.argv) != 3):
-    #     print "python mi_recibot.py <<dni>> <<password>>"
-    #     return
+def file_download_url(doc: Document):
+    return "https://ar.turecibo.com/file.php?idapp=305&id={}&t={}".format(doc.id, doc.ticket)
 
-    dni = sys.argv[1]
-    password = sys.argv[2]
-    session = doLogin(dni, password)
-    doList2(session)
+
+def files_paginated_url(page: int, category: int):
+    return 'https://www.turecibo.com.ar/bandeja.php?pag={}&category={}&idactivo=null'.format(page, category)
+
+
+def headers(cookieJar):
+    return {
+    "Content-Type": "application/x-www-form-urlencoded",
+    "Cookie": "PHPSESSID={}; AWSELB={}".format(cookieJar.get("PHPSESSID"), cookieJar.get("AWSELB"))
+    }
+
+
+def post(url, data=None, **kwargs):
+    logging.info("Hitting {}".format(url))
+    response = requests.post(url, data=data, **kwargs)
+    if response.status_code != 200:
+        logging.error("Error in post")
+        return None
+    else:
+        return response
+    
 
 
 if __name__ == "__main__":
