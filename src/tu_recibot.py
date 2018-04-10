@@ -48,7 +48,7 @@ class Category:
 def get_documents(session)-> list:
     documents = []
     for category in get_categories(session):
-        logging.info("Collection files for category: {}".format(category.name))
+        logging.info("Collecting files for category: {}".format(category.name))
         docs_left = True
         pag = 1
         while docs_left:
@@ -56,7 +56,6 @@ def get_documents(session)-> list:
             documents += docs
             docs_left = len(docs) > 0
             pag += 1
-            return docs # aqui
     return documents
 
 
@@ -81,9 +80,8 @@ def download_files(session, files: list):
 
 def login(dni, password):
     logging.info("Login...")
-    re = post("https://www.turecibo.com.ar/login.php")
-    url = "https://www.turecibo.com.ar/login.php"
-    r = post(url, data="login=1&usuario={}&clave={}".format(dni, password), allow_redirects=True, headers=headers(re.cookies))
+    re = post(login_url())
+    r = post(login_url(), data="login=1&usuario={}&clave={}".format(dni, password), allow_redirects=True, headers=headers(re.cookies))
     r = r.history[0]
     logging.info("Login OK")
     return r.cookies
@@ -106,15 +104,19 @@ def parse_categories(dic: dict) -> list:
     return categories
 
 
-def download_file(doc: Document, cookieJar):
+def download_file(doc: Document, cookie_jar):
     logging.info("Downloading document: {}".format(doc))
-    r = requests.get(file_download_url(doc), stream=True, headers=headers(cookieJar))
+    r = requests.get(file_download_url(doc), stream=True, headers=headers(cookie_jar))
     if r.status_code == 200:
         with open("{}-{}.pdf".format(doc.period.replace("/", "-"), doc.type), 'wb') as fd:
             for chunk in r.iter_content(chunk_size=128):
                 fd.write(chunk)
     else:
         logging.error("Error downloading file")
+
+
+def login_url():
+    return "https://www.turecibo.com.ar/login.php"
 
 
 def file_download_url(doc: Document):
@@ -125,10 +127,10 @@ def files_paginated_url(page: int, category: int):
     return 'https://www.turecibo.com.ar/bandeja.php?pag={}&category={}&idactivo=null'.format(page, category)
 
 
-def headers(cookieJar):
+def headers(cookie_jar):
     return {
     "Content-Type": "application/x-www-form-urlencoded",
-    "Cookie": "PHPSESSID={}; AWSELB={}".format(cookieJar.get("PHPSESSID"), cookieJar.get("AWSELB"))
+    "Cookie": "PHPSESSID={}; AWSELB={}".format(cookie_jar.get("PHPSESSID"), cookie_jar.get("AWSELB"))
     }
 
 
