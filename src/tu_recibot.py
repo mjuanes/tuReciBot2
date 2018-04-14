@@ -10,14 +10,15 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - [%(levelname)s] (%
 
 
 def main():
-    if len(sys.argv) != 3:
+    if len(sys.argv) < 3:
         print("python mi_recibot.py <<dni>> <<password>>")
         return
     dni = sys.argv[1]
     password = sys.argv[2]
-    session = login(dni, password)
-    files = get_documents(session)
-    download_files(session, files)
+    company = get_parameter(sys.argv, 3)
+    session = login(company, dni, password)
+    files = get_documents(company, session)
+    download_files(company, session, files)
     logging.info("Finished")
 
 
@@ -45,21 +46,21 @@ class Category:
         return "id: {}, name: {}".format(self.id, self.named)
 
 
-def get_documents(session)-> list:
+def get_documents(company: str, session)-> list:
     documents = []
-    for category in get_categories(session):
+    for category in get_categories(company, session):
         logging.info("Collecting files for category: {}".format(category.name))
         docs_left = True
         pag = 1
         while docs_left:
-            docs = get_docs_for_page(pag, category, session)
+            docs = get_docs_for_page(company, pag, category, session)
             documents += docs
             docs_left = len(docs) > 0
             pag += 1
     return documents
 
 
-def get_categories(session) -> list:
+def get_categories(company: str, session) -> list:
     pag_url = files_paginated_url(1, 1)
     response = post(pag_url, cookies=session, data='reload=1', headers=headers(session))
     res_dic = json.loads(response.text)
@@ -82,6 +83,7 @@ def login(dni, password):
     logging.info("Login...")
     re = post(login_url())
     r = post(login_url(), data="login=1&usuario={}&clave={}".format(dni, password), allow_redirects=True, headers=headers(re.cookies))
+    assert len(r.history) > 0, "Error getting cookies"
     r = r.history[0]
     logging.info("Login OK")
     return r.cookies
@@ -123,7 +125,8 @@ def file_download_url(doc: Document):
     return "https://ar.turecibo.com/file.php?idapp=305&id={}&t={}".format(doc.id, doc.ticket)
 
 
-def files_paginated_url(page: int, category: int):
+def files_paginated_url(company: str, page: int, category: int):
+    url(company)
     return 'https://www.turecibo.com.ar/bandeja.php?pag={}&category={}&idactivo=null'.format(page, category)
 
 
@@ -134,6 +137,22 @@ def headers(cookie_jar):
     }
 
 
+def url(company: str):
+    if company is None:
+        return {
+                'first_request': 'https://www.turecibo.com.ar/login.php',
+                'login': 'https://www.turecibo.com.ar/login.php',
+                'files_paginated': 'https://www.turecibo.com.ar/bandeja.php?pag={}&category={}&idactivo=null',
+                'file_download': 'https://www.turecibo.com.ar/bandeja.php?pag={}&category={}&idactivo=null'
+            }
+    else:
+        return {
+            'first_request': 'http://www.{}.turecibo.com/login.php'.format(company),
+            'login': 'https://{}.turecibo.com/login.php',
+            'files_paginated': 'https://{}.turecibo.com/bandeja.php?pag={}&category={}&idactivo=null',
+            'file_download': 'https://{}.turecibo.com/file.php?idapp=305&id={}&t={}'
+        }
+
 def post(url, data=None, **kwargs):
     logging.info("Hitting {}".format(url))
     response = requests.post(url, data=data, **kwargs)
@@ -142,7 +161,13 @@ def post(url, data=None, **kwargs):
         return None
     else:
         return response
-    
+
+
+def get_parameter(args, order: int):
+    try:
+        return args[order]
+    except IndexError:
+        return None
 
 
 if __name__ == "__main__":
