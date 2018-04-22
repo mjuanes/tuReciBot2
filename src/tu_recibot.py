@@ -17,7 +17,8 @@ def main():
         return
     dni = sys.argv[1]
     password = sys.argv[2]
-    session = login(dni, password)
+    company = sys.argv[3]
+    session = login(dni, password, company)
     files = get_documents(session)
     download_files(session, files)
     logging.info("Finished")
@@ -81,17 +82,19 @@ def download_files(session, files: list):
         download_file(doc, session)
 
 
-def login(dni, password):
+def login(dni, password, site):
     logging.info("Login...")
-    re = post(cookies_url())
-    r = post(login_url(), data="login=1&usuario={}&clave={}".format(dni, password), allow_redirects=True, headers=headers(re.cookies))
+    re = post(cookies_url(site))
+    r = post(login_url(site), data="login=1&usuario={}&clave={}".format(dni, password), allow_redirects=True, headers=headers(re.cookies))
     cookies = cookies_from_response(r)
+    assert len(cookies)>0, "Error logging in, impossible to get cookies"
     logging.info("Login OK")
     return cookies
 
 
 def cookies_from_response(r):
         return r.cookies
+
 
 def parse_documents(json_doc: dict, category: Category) -> list:
     documents = []
@@ -121,12 +124,12 @@ def download_file(doc: Document, cookie_jar):
         logging.error("Error downloading file")
 
 
-def cookies_url():
-    return url()['first_request']
+def cookies_url(site):
+    return url(site)['first_request']
 
 
-def login_url():
-    return url()['login']
+def login_url(site):
+    return url(site)['login']
 
 
 def file_download_url(doc: Document):
@@ -144,20 +147,12 @@ def headers(cookie_jar):
     }
 
 
-def url():
-    if COMPANY is None:
+def url(company):
         return {
-                'first_request': 'https://www.turecibo.com.ar/login.php',
-                'login': 'https://www.turecibo.com.ar/login.php',
-                'files_paginated': 'https://www.turecibo.com.ar/bandeja.php?pag={}&category={}&idactivo=null',
-                'file_download': 'https://ar.turecibo.com/file.php?idapp=305&id={}&t={}'
-            }
-    else:
-        return {
-            'first_request': 'http://www.{COMPANY}.turecibo.com/login.php'.replace("{COMPANY}", COMPANY),
-            'login': 'https://{COMPANY}.turecibo.com/login.php'.replace("{COMPANY}", COMPANY),
-            'files_paginated': 'https://{COMPANY}.turecibo.com/bandeja.php?pag={}&category={}&idactivo=null'.replace("{COMPANY}", COMPANY),
-            'file_download': 'https://{COMPANY}.turecibo.com/file.php?idapp=305&id={}&t={}'.replace("{COMPANY}", COMPANY)
+            'first_request': 'http://www.{COMPANY}.turecibo.com/login.php'.replace("{COMPANY}", company),
+            'login': 'https://{COMPANY}.turecibo.com/login.php'.replace("{COMPANY}", company),
+            'files_paginated': 'https://{COMPANY}.turecibo.com/bandeja.php?pag={}&category={}&idactivo=null'.replace("{COMPANY}", company),
+            'file_download': 'https://{COMPANY}.turecibo.com/file.php?idapp=305&id={}&t={}'.replace("{COMPANY}", company)
         }
 
 
@@ -184,5 +179,4 @@ def init_variables(args):
 
 
 if __name__ == "__main__":
-    init_variables(sys.argv)
     main()
