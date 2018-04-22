@@ -8,7 +8,7 @@ import sys
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - [%(levelname)s] (%(module)s:%(lineno)d) %(message)s')
 
-COMPANY = None
+site = None
 
 
 def main():
@@ -17,9 +17,9 @@ def main():
         return
     dni = sys.argv[1]
     password = sys.argv[2]
-    company = sys.argv[3]
-    session = login(dni, password, company)
-    files = get_documents(session)
+    site = sys.argv[3]
+    session = login(dni, password, site)
+    files = get_documents(session, site)
     download_files(session, files)
     logging.info("Finished")
 
@@ -48,9 +48,9 @@ class Category:
         return "id: {}, name: {}".format(self.id, self.named)
 
 
-def get_documents(session)-> list:
+def get_documents(session, site)-> list:
     documents = []
-    for category in get_categories(session):
+    for category in get_categories(session, site):
         logging.info("Collecting files for category: {}".format(category.name))
         docs_left = True
         pag = 1
@@ -63,8 +63,8 @@ def get_documents(session)-> list:
     return documents
 
 
-def get_categories(session) -> list:
-    pag_url = files_paginated_url(1, 1)
+def get_categories(session, site) -> list:
+    pag_url = files_paginated_url(1, 1, site)
     response = post(pag_url, cookies=session, data='reload=1', headers=headers(session))
     res_dic = json.loads(response.text)
     return parse_categories(res_dic)
@@ -87,13 +87,13 @@ def login(dni, password, site):
     re = post(cookies_url(site))
     r = post(login_url(site), data="login=1&usuario={}&clave={}".format(dni, password), allow_redirects=True, headers=headers(re.cookies))
     cookies = cookies_from_response(r)
-    assert len(cookies)>0, "Error logging in, impossible to get cookies"
+    assert len(cookies)>0, "Error login in, impossible to get cookies"
     logging.info("Login OK")
     return cookies
 
 
 def cookies_from_response(r):
-        return r.cookies
+        return r.history[0].cookies
 
 
 def parse_documents(json_doc: dict, category: Category) -> list:
@@ -136,8 +136,8 @@ def file_download_url(doc: Document):
     return url()['file_download'].format(doc.id, doc.ticket)
 
 
-def files_paginated_url(page: int, category: int):
-    return url()['files_paginated'].format(page, category)
+def files_paginated_url(page: int, category: int, site: str):
+    return url(site)['files_paginated'].format(page, category)
 
 
 def headers(cookie_jar):
@@ -147,12 +147,12 @@ def headers(cookie_jar):
     }
 
 
-def url(company):
+def url(site):
         return {
-            'first_request': 'http://www.{COMPANY}.turecibo.com/login.php'.replace("{COMPANY}", company),
-            'login': 'https://{COMPANY}.turecibo.com/login.php'.replace("{COMPANY}", company),
-            'files_paginated': 'https://{COMPANY}.turecibo.com/bandeja.php?pag={}&category={}&idactivo=null'.replace("{COMPANY}", company),
-            'file_download': 'https://{COMPANY}.turecibo.com/file.php?idapp=305&id={}&t={}'.replace("{COMPANY}", company)
+            'first_request': 'http://www.{site}.turecibo.com/login.php'.replace("{site}", site),
+            'login': 'https://{site}.turecibo.com/login.php'.replace("{site}", site),
+            'files_paginated': 'https://{site}.turecibo.com/bandeja.php?pag={}&category={}&idactivo=null'.replace("{site}", site),
+            'file_download': 'https://{site}.turecibo.com/file.php?idapp=305&id={}&t={}'.replace("{site}", site)
         }
 
 
@@ -174,8 +174,8 @@ def get_parameter(args, order: int):
 
 
 def init_variables(args):
-    global COMPANY
-    COMPANY = get_parameter(args, 3)
+    global site
+    site = get_parameter(args, 3)
 
 
 if __name__ == "__main__":
