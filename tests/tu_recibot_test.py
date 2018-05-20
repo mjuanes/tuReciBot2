@@ -5,25 +5,31 @@ import unittest
 import sys
 from src.tu_recibot import login
 from src.tu_recibot import get_documents
-from src.tu_recibot import get_categories
+from src.tu_recibot import get_categories2
 
-dni = "xxxxxx"
+dni = "xxxxxxx"
 password = "xxxxxx"
-site = "xxxxxxx"
+site = "xxxxxx"
 
 
-class TestStringMethods(unittest.TestCase):
+class TestMethods(unittest.TestCase):
 
     def setUp(self):
         self.cookies = login(dni, password, site)
 
     def test_login(self):
         cookies = login(dni, password, site)
-        self.assertTrue(len(cookies) > 0, "Error while login")
+        self.assertTrue(len(cookies) > 0, "Error loggin in.")
+        self.cookies = cookies
+
+    def test_get_categories(self):
+        categories = get_categories2(self.cookies, site)
+        self.assertTrue(len(categories) > 1, "Error getting categories.")
 
     def test_get_documents(self):
-        categories = get_categories(self.cookies, site)
-        self.assertTrue(len(categories) > 1, "Error while login")
+        documents = get_documents(self.cookies, site)
+        self.assertTrue(len(documents) > 10, "Error getting documents.")
+
 
 
 if __name__ == '__main__':

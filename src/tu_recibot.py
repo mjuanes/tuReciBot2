@@ -5,10 +5,12 @@ import requests
 import json
 import logging
 import sys
+import re
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - [%(levelname)s] (%(module)s:%(lineno)d) %(message)s')
 
 site = None
+pattern = re.compile('\/folders/([0-9]{1,3})\/documents', re.IGNORECASE)
 
 
 def main():
@@ -48,14 +50,14 @@ class Category:
         return "id: {}, name: {}".format(self.id, self.named)
 
 
-def get_documents(session, site)-> list:
+def get_documents(session, site) -> list:
     documents = []
-    for category in get_categories(session, site):
-        logging.info("Collecting files for category: {}".format(category.name))
+    for category in get_categories2(session, site):
+        logging.info("Collecting files for category: {}".format(category))
         docs_left = True
         pag = 1
         while docs_left:
-            docs = get_docs_for_page(pag, category, session)
+            docs = get_docs_for_page(pag, category, session, site)
             documents += docs
             docs_left = len(docs) > 0
             pag += 1
@@ -70,11 +72,17 @@ def get_categories(session, site) -> list:
     return parse_categories(res_dic)
 
 
-def get_docs_for_page(page: int, category: Category, session) ->list:
-    pag_url = files_paginated_url(page, category.id)
+def get_categories2(session, site) -> list:
+    pag_url = bandeja_url(site)
+    response = get(pag_url, cookies=session, headers=headers(session))
+    return parse_categories2(response.text)
+
+
+def get_docs_for_page(page: int, category, session, site) -> list:
+    pag_url = files_paginated_url(page, category, site)
     response = post(pag_url, data='reload=1', headers=headers(session))
     res_dic = json.loads(response.text)
-    return parse_documents(res_dic, category)
+    return parse_documents2(res_dic, category)
 
 
 def download_files(session, files: list):
@@ -85,15 +93,16 @@ def download_files(session, files: list):
 def login(dni, password, site):
     logging.info("Login...")
     re = post(cookies_url(site))
-    r = post(login_url(site), data="login=1&usuario={}&clave={}".format(dni, password), allow_redirects=True, headers=headers(re.cookies))
+    r = post(login_url(site), data="login=1&usuario={}&clave={}".format(dni, password), allow_redirects=True,
+             headers=headers(re.cookies))
     cookies = cookies_from_response(r)
-    assert len(cookies)>0, "Error login in, impossible to get cookies"
+    assert len(cookies) > 0, "Error login in, impossible to get cookies"
     logging.info("Login OK")
     return cookies
 
 
 def cookies_from_response(r):
-        return r.history[0].cookies
+    return r.history[0].cookies
 
 
 def parse_documents(json_doc: dict, category: Category) -> list:
@@ -105,12 +114,25 @@ def parse_documents(json_doc: dict, category: Category) -> list:
     return documents
 
 
+def parse_documents2(json_doc: dict, category: Category) -> list:
+    try:
+        docs = json_doc["categorias"]["documentos"]
+        return docs
+    except:
+        return []
+
 def parse_categories(dic: dict) -> list:
     categories = []
     for dic_cat in dic['categorias'].values():
-        category = Category(dic_cat['id_categoria_tipo'], dic_cat['name'], dic_cat['totalDocumentos'], dic_cat['sinFirmar'])
+        category = Category(dic_cat['id_categoria_tipo'], dic_cat['name'], dic_cat['totalDocumentos'],
+                            dic_cat['sinFirmar'])
         categories.append(category)
     return categories
+
+
+def parse_categories2(html: str) -> list:
+    categories = pattern.findall(html)
+    return set(categories)
 
 
 def download_file(doc: Document, cookie_jar):
@@ -137,23 +159,27 @@ def file_download_url(doc: Document):
 
 
 def files_paginated_url(page: int, category: int, site: str):
-    return url(site)['files_paginated'].format(page, category)
+    return url(site)['files_paginated'].format(category, page, category)
+
+
+def bandeja_url(site: str):
+    return url(site)['categories']
 
 
 def headers(cookie_jar):
     return {
-    "Content-Type": "application/x-www-form-urlencoded",
-    "Cookie": "PHPSESSID={}; AWSELB={}".format(cookie_jar.get("PHPSESSID"), cookie_jar.get("AWSELB"))
+        "Content-Type": "application/x-www-form-urlencoded",
+        "Cookie": "PHPSESSID={}; AWSELB={}".format(cookie_jar.get("PHPSESSID"), cookie_jar.get("AWSELB"))
     }
 
-
 def url(site):
-        return {
-            'first_request': 'http://www.{site}.turecibo.com/login.php'.replace("{site}", site),
-            'login': 'https://{site}.turecibo.com/login.php'.replace("{site}", site),
-            'files_paginated': 'https://{site}.turecibo.com/bandeja.php?pag={}&category={}&idactivo=null'.replace("{site}", site),
-            'file_download': 'https://{site}.turecibo.com/file.php?idapp=305&id={}&t={}'.replace("{site}", site)
-        }
+    return {
+        'first_request': 'http://www.{site}.turecibo.com/login.php'.replace("{site}", site),
+        'login': 'https://{site}.turecibo.com/login.php'.replace("{site}", site),
+        'categories': 'https://{site}.turecibo.com/bandeja.php'.replace("{site}", site),
+        'files_paginated': 'https://{site}.turecibo.com.ar/bandeja.php?apiendpoint=/folders/{}/documents/available?pagination_5,{},2&folder={}&idactivo=null'.replace("{site}", site),
+        'file_download': 'https://{site}.turecibo.com/file.php?idapp=305&id={}&t={}'.replace("{site}", site)
+    }
 
 
 def post(url, data=None, **kwargs):
@@ -161,6 +187,17 @@ def post(url, data=None, **kwargs):
     response = requests.post(url, data=data, **kwargs)
     if response.status_code != 200:
         logging.error("Error in post")
+        return None
+    else:
+        return response
+
+
+# A otra funcion el manejo de errores
+def get(url, **kwargs):
+    logging.info("Hitting {}".format(url))
+    response = requests.get(url, **kwargs)
+    if response.status_code != 200:
+        logging.error("Error in get")
         return None
     else:
         return response
