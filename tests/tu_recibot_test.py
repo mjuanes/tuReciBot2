@@ -9,7 +9,7 @@ from src.tu_recibot import get_categories2
 
 dni = "xxxxxxx"
 password = "xxxxxx"
-site = "xxxxxx"
+site = "xxxxxxx"
 
 
 class TestMethods(unittest.TestCase):
@@ -24,12 +24,11 @@ class TestMethods(unittest.TestCase):
 
     def test_get_categories(self):
         categories = get_categories2(self.cookies, site)
-        self.assertTrue(len(categories) > 1, "Error getting categories.")
+        self.assertTrue(len(categories) > 0, "Error getting categories.")
 
     def test_get_documents(self):
         documents = get_documents(self.cookies, site)
-        self.assertTrue(len(documents) > 10, "Error getting documents.")
-
+        self.assertTrue(len(documents) > 0, "Error getting documents.")
 
 
 if __name__ == '__main__':

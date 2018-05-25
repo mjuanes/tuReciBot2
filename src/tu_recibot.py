@@ -6,8 +6,10 @@ import json
 import logging
 import sys
 import re
+import os
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - [%(levelname)s] (%(module)s:%(lineno)d) %(message)s')
+logging.getLogger('requests').setLevel(logging.ERROR)
 
 site = None
 pattern = re.compile('\/folders/([0-9]{1,3})\/documents', re.IGNORECASE)
@@ -22,7 +24,7 @@ def main():
     site = sys.argv[3]
     session = login(dni, password, site)
     files = get_documents(session, site)
-    download_files(session, files)
+    download_files(session, files, site)
     logging.info("Finished")
 
 
@@ -61,7 +63,7 @@ def get_documents(session, site) -> list:
             documents += docs
             docs_left = len(docs) > 0
             pag += 1
-            return documents
+            return docs
     return documents
 
 
@@ -85,17 +87,19 @@ def get_docs_for_page(page: int, category, session, site) -> list:
     return parse_documents2(res_dic, category)
 
 
-def download_files(session, files: list):
+def download_files(session, files: list, site: str):
+    logging.info("Downloading {} files...".format(len(files)))
+    create_download_folder()
     for doc in files:
-        download_file(doc, session)
+        download_file(session, doc, site)
 
 
 def login(dni, password, site):
     logging.info("Login...")
-    re = post(cookies_url(site))
-    r = post(login_url(site), data="login=1&usuario={}&clave={}".format(dni, password), allow_redirects=True,
-             headers=headers(re.cookies))
-    cookies = cookies_from_response(r)
+    response1 = post(cookies_url(site))
+    response2 = post(login_url(site), data="login=1&usuario={}&clave={}".format(dni, password), allow_redirects=True,
+                     headers=headers(response1.cookies))
+    cookies = cookies_from_response(response2)
     assert len(cookies) > 0, "Error login in, impossible to get cookies"
     logging.info("Login OK")
     return cookies
@@ -121,6 +125,7 @@ def parse_documents2(json_doc: dict, category: Category) -> list:
     except:
         return []
 
+
 def parse_categories(dic: dict) -> list:
     categories = []
     for dic_cat in dic['categorias'].values():
@@ -135,15 +140,25 @@ def parse_categories2(html: str) -> list:
     return set(categories)
 
 
-def download_file(doc: Document, cookie_jar):
-    logging.info("Downloading document: {}".format(doc))
-    r = requests.get(file_download_url(doc), stream=True, headers=headers(cookie_jar))
+def create_download_folder():
+    if not os.path.exists("./docs"):
+        os.makedirs("./docs")
+
+
+def download_file(cookie_jar, doc, site):
+    logging.info("Downloading document: {}".format(get_file_name(doc)))
+    r = requests.get(file_download_url(site, doc), stream=True, headers=headers(cookie_jar))
     if r.status_code == 200:
-        with open("{}-{}.pdf".format(doc.period.replace("/", "-"), doc.type), 'wb') as fd:
+        with open(get_file_name(doc), 'wb') as fd:
             for chunk in r.iter_content(chunk_size=128):
                 fd.write(chunk)
     else:
         logging.error("Error downloading file")
+
+
+def get_file_name(doc):
+    month, year = doc['periodo'].split("/")
+    return "./docs/" + "{}-{}-{}.pdf".format(year, month, doc['tipo_nombre'])
 
 
 def cookies_url(site):
@@ -154,8 +169,8 @@ def login_url(site):
     return url(site)['login']
 
 
-def file_download_url(doc: Document):
-    return url()['file_download'].format(doc.id, doc.ticket)
+def file_download_url(site, doc):
+    return url(site)['file_download'].format(doc['id'])
 
 
 def files_paginated_url(page: int, category: int, site: str):
@@ -172,13 +187,15 @@ def headers(cookie_jar):
         "Cookie": "PHPSESSID={}; AWSELB={}".format(cookie_jar.get("PHPSESSID"), cookie_jar.get("AWSELB"))
     }
 
+
 def url(site):
     return {
         'first_request': 'http://www.{site}.turecibo.com/login.php'.replace("{site}", site),
         'login': 'https://{site}.turecibo.com/login.php'.replace("{site}", site),
         'categories': 'https://{site}.turecibo.com/bandeja.php'.replace("{site}", site),
-        'files_paginated': 'https://{site}.turecibo.com.ar/bandeja.php?apiendpoint=/folders/{}/documents/available?pagination_5,{},2&folder={}&idactivo=null'.replace("{site}", site),
-        'file_download': 'https://{site}.turecibo.com/file.php?idapp=305&id={}&t={}'.replace("{site}", site)
+        'files_paginated': 'https://{site}.turecibo.com.ar/bandeja.php?apiendpoint=/folders/{}/documents/available?pagination_5,{},2&folder={}&idactivo=null'.replace(
+            "{site}", site),
+        'file_download': 'https://{site}.turecibo.com/file.php?idapp=278&id={}&bandeja=yes'.replace("{site}", site)
     }
 
 
