@@ -11,50 +11,47 @@ import os
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - [%(levelname)s] (%(module)s:%(lineno)d) %(message)s')
 logging.getLogger('requests').setLevel(logging.ERROR)
 
-site = None
-pattern = re.compile('\/folders/([0-9]{1,3})\/documents', re.IGNORECASE)
+FOLDERS_PATTERN = re.compile('\/folders/([0-9]{1,3})\/documents', re.IGNORECASE)
+
+BODY_PATTERN = re.compile('<ul class="dropdown-menu"[\s\S]*?<\/ul>')
 
 
 def main():
-    if len(sys.argv) < 3:
-        print("python mi_recibot.py <<dni>> <<password>>")
-        return
+    check_parameters()
     dni = sys.argv[1]
     password = sys.argv[2]
     site = sys.argv[3]
+    process(dni, password, site)
+
+
+def process(dni, password, site):
     session = login(dni, password, site)
-    files = get_documents(session, site)
-    download_files(session, files, site)
-    logging.info("Finished")
+    companies = get_companies(session, site)
+    for company in companies:
+        files = get_documents(session, site)
+        download_files(session, files, company, site)
+        logging.info("Finished downloading files for {}".format(company))
+        change_company(session, site, companies)
 
 
-class Document:
-    def __init__(self, id, period, type, category, signed, ticket):
-        self.id = id
-        self.period = period
-        self.type = type
-        self.category = category
-        self.signed = signed
-        self.ticket = ticket
+def get_companies(session, site):
+    pag_url = bandeja_url(site)
+    response = get(pag_url, cookies=session, headers=headers(session))
+    body = BODY_PATTERN.findall(response.text)
+    patter_company = re.compile('<b>([\w ]*?)<\/b>')
+    names = patter_company.findall(body[0])
 
-    def __str__(self):
-        return "id: {}, period: {}, type: {}, category: {}".format(self.id, self.period, self.type, self.category.name)
+    return names
 
 
-class Category:
-    def __init__(self, id, name, total, without_signed):
-        self.id = id
-        self.name = name
-        self.total = total
-        self.without_signed = without_signed
-
-    def __str__(self):
-        return "id: {}, name: {}".format(self.id, self.named)
+def change_company(session, site, companies):
+    if len(companies) > 1:
+        get(change_company_url(site), cookies=session, headers=headers(session))
 
 
 def get_documents(session, site) -> list:
     documents = []
-    for category in get_categories2(session, site):
+    for category in get_categories(session, site):
         logging.info("Collecting files for category: {}".format(category))
         docs_left = True
         pag = 1
@@ -63,35 +60,27 @@ def get_documents(session, site) -> list:
             documents += docs
             docs_left = len(docs) > 0
             pag += 1
-            return docs
     return documents
 
 
-def get_categories(session, site) -> list:
-    pag_url = files_paginated_url(1, 1, site)
-    response = post(pag_url, cookies=session, data='reload=1', headers=headers(session))
-    res_dic = json.loads(response.text)
-    return parse_categories(res_dic)
-
-
-def get_categories2(session, site) -> list:
+def get_categories(session, site) -> set:
     pag_url = bandeja_url(site)
     response = get(pag_url, cookies=session, headers=headers(session))
-    return parse_categories2(response.text)
+    return parse_categories(response.text)
 
 
 def get_docs_for_page(page: int, category, session, site) -> list:
     pag_url = files_paginated_url(page, category, site)
     response = post(pag_url, data='reload=1', headers=headers(session))
     res_dic = json.loads(response.text)
-    return parse_documents2(res_dic, category)
+    return parse_documents(res_dic)
 
 
-def download_files(session, files: list, site: str):
-    logging.info("Downloading {} files...".format(len(files)))
+def download_files(session, files: list, company: str, site: str):
+    logging.info("Downloading {} files for company {}...".format(len(files), company))
     create_download_folder()
     for doc in files:
-        download_file(session, doc, site)
+        download_file(session, doc, company, site)
 
 
 def login(dni, password, site):
@@ -109,34 +98,17 @@ def cookies_from_response(r):
     return r.history[0].cookies
 
 
-def parse_documents(json_doc: dict, category: Category) -> list:
-    documents = []
-    for doc in json_doc["documentosFirmables"]:
-        ticket = json_doc["tikets"][str(doc["id"])]
-        doc = Document(doc["id"], doc["periodo"], doc["tipo"], category, doc["firmado"], ticket)
-        documents.append(doc)
-    return documents
-
-
-def parse_documents2(json_doc: dict, category: Category) -> list:
+def parse_documents(json_doc: dict) -> list:
     try:
         docs = json_doc["categorias"]["documentos"]
         return docs
-    except:
+    except Exception as e:
+        logging.error("Unexpected error:", sys.exc_info()[0])
         return []
 
 
-def parse_categories(dic: dict) -> list:
-    categories = []
-    for dic_cat in dic['categorias'].values():
-        category = Category(dic_cat['id_categoria_tipo'], dic_cat['name'], dic_cat['totalDocumentos'],
-                            dic_cat['sinFirmar'])
-        categories.append(category)
-    return categories
-
-
-def parse_categories2(html: str) -> list:
-    categories = pattern.findall(html)
+def parse_categories(html: str) -> set:
+    categories = FOLDERS_PATTERN.findall(html)
     return set(categories)
 
 
@@ -145,20 +117,22 @@ def create_download_folder():
         os.makedirs("./docs")
 
 
-def download_file(cookie_jar, doc, site):
-    logging.info("Downloading document: {}".format(get_file_name(doc)))
-    r = requests.get(file_download_url(site, doc), stream=True, headers=headers(cookie_jar))
-    if r.status_code == 200:
-        with open(get_file_name(doc), 'wb') as fd:
+def download_file(cookie_jar, doc, company, site):
+    logging.info("Downloading document: {}".format(get_file_name(doc, company)))
+    r = get(file_download_url(site, doc), stream=True, headers=headers(cookie_jar))
+    if r is not None:
+        with open(get_file_name(doc, company), 'wb') as fd:
             for chunk in r.iter_content(chunk_size=128):
                 fd.write(chunk)
-    else:
-        logging.error("Error downloading file")
 
 
-def get_file_name(doc):
+def get_file_name(doc, company):
     month, year = doc['periodo'].split("/")
-    return "./docs/" + "{}-{}-{}.pdf".format(year, month, doc['tipo_nombre'])
+    return "./docs/" + "{}-{}-{}-{}.pdf".format(year, month, company, doc['tipo_nombre']).replace(" ", "-")
+
+
+def change_company_url(site):
+    return url(site)['change_company']
 
 
 def cookies_url(site):
@@ -190,6 +164,7 @@ def headers(cookie_jar):
 
 def url(site):
     return {
+        'change_company': 'https://{}.turecibo.com.ar/index.php?chu=1'.format(site),
         'first_request': 'http://www.{site}.turecibo.com/login.php'.replace("{site}", site),
         'login': 'https://{site}.turecibo.com/login.php'.replace("{site}", site),
         'categories': 'https://{site}.turecibo.com/bandeja.php'.replace("{site}", site),
@@ -200,36 +175,28 @@ def url(site):
 
 
 def post(url, data=None, **kwargs):
-    logging.info("Hitting {}".format(url))
     response = requests.post(url, data=data, **kwargs)
-    if response.status_code != 200:
-        logging.error("Error in post")
-        return None
-    else:
-        return response
+    return handle_response('POST', url, data, response)
 
 
-# A otra funcion el manejo de errores
 def get(url, **kwargs):
-    logging.info("Hitting {}".format(url))
     response = requests.get(url, **kwargs)
+    return handle_response('GET', url, None, response)
+
+
+def check_parameters():
+    if len(sys.argv) < 3:
+        print("Usage:   python mi_recibot.py <<dni>> <<password>> <<site>> \n"
+              "Example: python mi_recibot.py 23817653 swordfish oracle")
+        sys.exit(-1)
+
+
+def handle_response(method, url, payload, response):
     if response.status_code != 200:
-        logging.error("Error in get")
+        logging.error("Error in {} method to {} - Payload {}".format(method, url, payload))
         return None
     else:
         return response
-
-
-def get_parameter(args, order: int):
-    try:
-        return args[order]
-    except IndexError:
-        return None
-
-
-def init_variables(args):
-    global site
-    site = get_parameter(args, 3)
 
 
 if __name__ == "__main__":
