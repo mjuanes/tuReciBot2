@@ -1,12 +1,13 @@
 #!/usr/bin/python3
 # -*- coding: utf-8 -*-
 
-import requests
 import json
 import logging
-import sys
-import re
 import os
+import re
+import sys
+import itertools
+import requests
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - [%(levelname)s] (%(module)s:%(lineno)d) %(message)s')
 logging.getLogger('requests').setLevel(logging.ERROR)
@@ -17,10 +18,7 @@ BODY_PATTERN = re.compile('<ul class="dropdown-menu"[\s\S]*?<\/ul>')
 
 
 def main():
-    check_parameters()
-    dni = sys.argv[1]
-    password = sys.argv[2]
-    site = sys.argv[3]
+    dni, password, site = validate_and_get_parameters()
     process(dni, password, site)
 
 
@@ -52,15 +50,25 @@ def change_company(session, site, companies):
 def get_documents(session, site) -> list:
     documents = []
     for category in get_categories(session, site):
-        logging.info("Collecting files for category: {}".format(category))
-        docs_left = True
-        pag = 1
-        while docs_left:
-            docs = get_docs_for_page(pag, category, session, site)
-            documents += docs
-            docs_left = len(docs) > 0
-            pag += 1
+        documents += get_documents_for_category(session, site, category)
     return documents
+
+
+def get_documents_for_category(session, site, category) -> list:
+    logging.info("Collecting files for category: {}".format(category))
+    documents = []
+    for docs_for_page in docs_pager_generator(category, session, site):
+        documents += docs_for_page
+    return documents
+
+
+def docs_pager_generator(category, session, site):
+    for page in itertools.count(start=1):
+        docs = get_docs_for_page(page, category, session, site)
+        if docs:
+            yield docs
+        else:
+            return
 
 
 def get_categories(session, site) -> set:
@@ -184,11 +192,13 @@ def get(url, **kwargs):
     return handle_response('GET', url, None, response)
 
 
-def check_parameters():
+def validate_and_get_parameters():
     if len(sys.argv) < 3:
         print("Usage:   python mi_recibot.py <<dni>> <<password>> <<site>> \n"
               "Example: python mi_recibot.py 23817653 swordfish oracle")
         sys.exit(-1)
+    else:
+        return sys.argv[1], sys.argv[2], sys.argv[3]
 
 
 def handle_response(method, url, payload, response):

@@ -1,3 +1,5 @@
 *.iml
 .idea/
 *.pdf
+*__pycache__/
+test/__pycache__/*

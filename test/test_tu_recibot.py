@@ -3,15 +3,17 @@
 
 import unittest
 
-from src.tu_recibot import get_categories
-from src.tu_recibot import get_documents
-from src.tu_recibot import get_companies
-from src.tu_recibot import login
+from tu_recibot import get_categories
+from tu_recibot import get_documents
+from tu_recibot import get_companies
+from tu_recibot import login
+
+from os import environ
 
 # Complete me
-dni = "xxxxxx"
-password = "xxxxxxx"
-site = "xxxxxx"
+dni = environ['DNI']
+password = environ['PASSWORD']
+site = environ['SITE']
 
 
 class TestMethods(unittest.TestCase):
@@ -20,7 +22,7 @@ class TestMethods(unittest.TestCase):
         self.cookies = login(dni, password, site)
 
     def test_login(self):
-        self.assertTrue(len(self.cookies) > 0, "Error loggin in.")
+        self.assertTrue(len(self.cookies) > 0, "Error in logging.")
 
     def test_get_categories(self):
         categories = get_categories(self.cookies, site)
