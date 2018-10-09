@@ -13,18 +13,22 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - [%(levelname)s] (%
 logging.getLogger('requests').setLevel(logging.ERROR)
 
 FOLDERS_PATTERN = re.compile('\/folders/([0-9]{1,3})\/documents', re.IGNORECASE)
-
+COMPANY_PATTERN = re.compile('<b>([\w ]*?)<\/b>')
 BODY_PATTERN = re.compile('<ul class="dropdown-menu"[\s\S]*?<\/ul>')
 
 
 def main():
     dni, password, site = validate_and_get_parameters()
-    process(dni, password, site)
+    download_for_user(dni, password, site)
 
 
-def process(dni, password, site):
+def download_for_user(dni, password, site):
     session = login(dni, password, site)
     companies = get_companies(session, site)
+    download_files_for_companies(session, site, companies)
+
+
+def download_files_for_companies(session, site, companies):
     for company in companies:
         files = get_documents(session, site)
         download_files(session, files, company, site)
@@ -34,17 +38,17 @@ def process(dni, password, site):
 
 def get_companies(session, site):
     pag_url = bandeja_url(site)
-    response = get(pag_url, cookies=session, headers=headers(session))
+    response = get(pag_url, cookies=session, headers=build_headers(session))
     body = BODY_PATTERN.findall(response.text)
-    patter_company = re.compile('<b>([\w ]*?)<\/b>')
-    names = patter_company.findall(body[0])
+    companies_names = COMPANY_PATTERN.findall(body[0])
+    logging.info("Companies fetched: {}".format(companies_names))
 
-    return names
+    return companies_names
 
 
 def change_company(session, site, companies):
     if len(companies) > 1:
-        get(change_company_url(site), cookies=session, headers=headers(session))
+        get(change_company_url(site), cookies=session, headers=build_headers(session))
 
 
 def get_documents(session, site) -> list:
@@ -64,22 +68,22 @@ def get_documents_for_category(session, site, category) -> list:
 
 def docs_pager_generator(category, session, site):
     for page in itertools.count(start=1):
-        docs = get_docs_for_page(page, category, session, site)
-        if docs:
-            yield docs
+        docs_for_page = get_docs_for_page(page, category, session, site)
+        if docs_for_page:
+            yield docs_for_page
         else:
             return
 
 
 def get_categories(session, site) -> set:
     pag_url = bandeja_url(site)
-    response = get(pag_url, cookies=session, headers=headers(session))
+    response = get(pag_url, cookies=session, headers=build_headers(session))
     return parse_categories(response.text)
 
 
 def get_docs_for_page(page: int, category, session, site) -> list:
     pag_url = files_paginated_url(page, category, site)
-    response = post(pag_url, data='reload=1', headers=headers(session))
+    response = post(pag_url, data='reload=1', headers=build_headers(session))
     res_dic = json.loads(response.text)
     return parse_documents(res_dic)
 
@@ -95,14 +99,14 @@ def login(dni, password, site):
     logging.info("Login...")
     response1 = post(cookies_url(site))
     response2 = post(login_url(site), data="login=1&usuario={}&clave={}".format(dni, password), allow_redirects=True,
-                     headers=headers(response1.cookies))
+                     headers=build_headers(response1.cookies))
     cookies = cookies_from_response(response2)
-    assert len(cookies) > 0, "Error login in, impossible to get cookies"
     logging.info("Login OK")
     return cookies
 
 
 def cookies_from_response(r):
+    assert r is not None and len(r.history) > 0, "No cookies to fetch. Wrong username or password."
     return r.history[0].cookies
 
 
@@ -127,7 +131,7 @@ def create_download_folder():
 
 def download_file(cookie_jar, doc, company, site):
     logging.info("Downloading document: {}".format(get_file_name(doc, company)))
-    r = get(file_download_url(site, doc), stream=True, headers=headers(cookie_jar))
+    r = get(file_download_url(site, doc), stream=True, headers=build_headers(cookie_jar))
     if r is not None:
         with open(get_file_name(doc, company), 'wb') as fd:
             for chunk in r.iter_content(chunk_size=128):
@@ -140,42 +144,45 @@ def get_file_name(doc, company):
 
 
 def change_company_url(site):
-    return url(site)['change_company']
+    return url_for_site(site)['change_company']
 
 
 def cookies_url(site):
-    return url(site)['first_request']
+    return url_for_site(site)['first_request']
 
 
 def login_url(site):
-    return url(site)['login']
+    return url_for_site(site)['login']
 
 
 def file_download_url(site, doc):
-    return url(site)['file_download'].format(doc['id'])
+    return url_for_site(site)['file_download'].format(doc['id'])
 
 
 def files_paginated_url(page: int, category: int, site: str):
-    return url(site)['files_paginated'].format(category, page, category)
+    return url_for_site(site)['files_paginated'].format(category, page, category)
 
 
 def bandeja_url(site: str):
-    return url(site)['categories']
+    return url_for_site(site)['categories']
 
 
-def headers(cookie_jar):
+def build_headers(cookie_jar):
+    value_awsalb = cookie_jar.get("AWSALB")
+    value_awselb = cookie_jar.get("AWSELB")
+    key, value = ("AWSELB", value_awselb) if value_awselb is not None else ("AWSALB", value_awsalb)
     return {
         "Content-Type": "application/x-www-form-urlencoded",
-        "Cookie": "PHPSESSID={}; AWSELB={}".format(cookie_jar.get("PHPSESSID"), cookie_jar.get("AWSELB"))
+        "Cookie": "PHPSESSID={}; {}={}".format(cookie_jar.get("PHPSESSID"), key, value)
     }
 
 
-def url(site):
+def url_for_site(site):
     return {
         'change_company': 'https://{}.turecibo.com.ar/index.php?chu=1'.format(site),
         'first_request': 'http://www.{site}.turecibo.com/login.php'.replace("{site}", site),
         'login': 'https://{site}.turecibo.com/login.php'.replace("{site}", site),
-        'categories': 'https://{site}.turecibo.com/bandeja.php'.replace("{site}", site),
+        'categories': 'https://{site}.turecibo.com.ar/bandeja.php'.replace("{site}", site),
         'files_paginated': 'https://{site}.turecibo.com.ar/bandeja.php?apiendpoint=/folders/{}/documents/available?pagination_5,{},2&folder={}&idactivo=null'.replace(
             "{site}", site),
         'file_download': 'https://{site}.turecibo.com/file.php?idapp=278&id={}&bandeja=yes'.replace("{site}", site)
@@ -193,7 +200,7 @@ def get(url, **kwargs):
 
 
 def validate_and_get_parameters():
-    if len(sys.argv) < 3:
+    if len(sys.argv) is not 4:
         print("Usage:   python mi_recibot.py <<dni>> <<password>> <<site>> \n"
               "Example: python mi_recibot.py 23817653 swordfish oracle")
         sys.exit(-1)
@@ -203,7 +210,7 @@ def validate_and_get_parameters():
 
 def handle_response(method, url, payload, response):
     if response.status_code != 200:
-        logging.error("Error in {} method to {} - Payload {}".format(method, url, payload))
+        logging.error("Error in {} method to {} - Payload {}.".format(method, url, payload))
         return None
     else:
         return response
