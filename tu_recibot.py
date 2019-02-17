@@ -59,10 +59,11 @@ def get_documents(session, site) -> list:
 
 
 def get_documents_for_category(session, site, category) -> list:
-    logging.info("Collecting files for category: {}".format(category))
+    logging.info("Collecting files for category: {} ...".format(category))
     documents = []
     for docs_for_page in docs_pager_generator(category, session, site):
         documents += docs_for_page
+    logging.info("{} files collected for category {}".format(len(documents), category))
     return documents
 
 
@@ -131,16 +132,36 @@ def create_download_folder():
 
 def download_file(cookie_jar, doc, company, site):
     logging.info("Downloading document: {}".format(get_file_name(doc, company)))
-    r = get(file_download_url(site, doc), stream=True, headers=build_headers(cookie_jar))
-    if r is not None:
-        with open(get_file_name(doc, company), 'wb') as fd:
-            for chunk in r.iter_content(chunk_size=128):
-                fd.write(chunk)
+    response = get(file_download_url(site, doc), stream=True, headers=build_headers(cookie_jar))
+    if response is not None:
+        write_file(response, doc, company)
+
+
+def write_file(response, doc, company):
+    file_name = get_file_name(doc, company)
+    with open(file_name, 'wb') as fd:
+        for chunk in response.iter_content(chunk_size=128):
+            fd.write(chunk)
 
 
 def get_file_name(doc, company):
     month, year = doc['periodo'].split("/")
-    return "./docs/" + "{}-{}-{}-{}.pdf".format(year, month, company, doc['tipo_nombre']).replace(" ", "-")
+    tipo_doc = doc['tipo_nombre']
+
+    path = "./docs/"
+    file_name = "{}-{}-{}-{}$SUFIX.pdf".format(year, month, company, tipo_doc).replace(" ", "-")
+
+    return modify_if_file_name_exists(path + file_name)
+
+
+def modify_if_file_name_exists(file_name):
+    name = file_name.replace("$SUFIX", "")
+    sufix = 1
+    while os.path.exists(name):
+        sufix += 1
+        name = file_name.replace("$SUFIX", "-" + str(sufix))
+
+    return name
 
 
 def change_company_url(site):
@@ -172,9 +193,10 @@ def build_headers(cookie_jar):
     value_awselb = cookie_jar.get("AWSELB")
     key, value = ("AWSELB", value_awselb) if value_awselb is not None else ("AWSALB", value_awsalb)
     return {
-        "Content-Type": "application/x-www-form-urlencoded",
-        "Cookie": "PHPSESSID={}; {}={}".format(cookie_jar.get("PHPSESSID"), key, value)
+        'Content-Type': "application/x-www-form-urlencoded",
+        'Cookie': "PHPSESSID={}; {}={}".format(cookie_jar.get("PHPSESSID"), key, value)
     }
+
 
 
 def url_for_site(site):
