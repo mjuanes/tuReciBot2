@@ -12,7 +12,7 @@ import requests
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - [%(levelname)s] (%(module)s:%(lineno)d) %(message)s')
 logging.getLogger('requests').setLevel(logging.ERROR)
 
-FOLDERS_PATTERN = re.compile('\/folders/([0-9]{1,3})\/documents', re.IGNORECASE)
+FOLDERS_PATTERN = re.compile('\/folders/([0-9]{1,})\/documents', re.IGNORECASE)
 COMPANY_PATTERN = re.compile('<b>([\w ]*?)<\/b>')
 BODY_PATTERN = re.compile('<ul class="dropdown-menu"[\s\S]*?<\/ul>')
 
