@@ -202,7 +202,7 @@ def build_headers(cookie_jar):
 def url_for_site(site):
     return {
         'change_company': 'https://{}.turecibo.com.ar/index.php?chu=1'.format(site),
-        'first_request': 'http://www.{site}.turecibo.com/login.php'.replace("{site}", site),
+        'first_request': 'https://{site}.turecibo.com/login.php'.replace("{site}", site),
         'login': 'https://{site}.turecibo.com/login.php'.replace("{site}", site),
         'categories': 'https://{site}.turecibo.com.ar/bandeja.php'.replace("{site}", site),
         'files_paginated': 'https://{site}.turecibo.com.ar/bandeja.php?apiendpoint=/folders/{}/documents/available?pagination_5,{},2&folder={}&idactivo=null'.replace(
